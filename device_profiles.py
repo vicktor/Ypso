@@ -9,6 +9,13 @@ DEVICE_PROFILES = {
         "os_version": "14",
         "manufacturer": "samsung"
     },
+    "pixel_6a": {
+        "platform": "Android",
+        "model": "Pixel 6a",
+        "os_type": "Phone", 
+        "os_version": "16",
+        "manufacturer": "Google"
+    },
     "pixel_7": {
         "platform": "Android",
         "model": "Pixel 7",
@@ -41,4 +48,4 @@ APP_INFO = {
 }
 
 # Current device used (change this to switch profiles)
-CURRENT_DEVICE = "xiaomi_mi11"
+CURRENT_DEVICE = "pixel_6a"
