@@ -1,0 +1,18 @@
+[Unit]
+Description=YpsoPump Play Integrity Token Service
+After=network.target
+
+[Service]
+Type=simple
+User=ypsopump
+Group=ypsopump
+WorkingDirectory=/opt/ypsopump
+EnvironmentFile=/opt/ypsopump/.env
+ExecStart=/opt/ypsopump/.venv/bin/uvicorn server.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
