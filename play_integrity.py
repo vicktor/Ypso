@@ -5,6 +5,7 @@ import base64
 import subprocess
 import frida
 import threading
+import os
 
 if len(sys.argv) != 2:
     print("Usage: python play_integrity.py <nonce_hex>")
@@ -17,57 +18,6 @@ PACKAGE = "net.sinovo.mylife.app"
 PROCESS_NAME = "mylife App"
 ACTIVITY = "net.sinovo.mylife.app/crc64e9c4225bc8bdbe22.SplashScreen"
 CLOUD_PROJECT = 381590650735
-
-FRIDA_SCRIPT = """
-'use strict';
-
-var NONCE = "__NONCE__";
-var PROJECT_NUM = __PROJECT_NUM__;
-
-Java.perform(function() {
-    try {
-        var ActivityThread = Java.use('android.app.ActivityThread');
-        var context = ActivityThread.currentApplication().getApplicationContext();
-        var IntegrityManagerFactory = Java.use('com.google.android.play.core.integrity.IntegrityManagerFactory');
-        var IntegrityTokenRequest = Java.use('com.google.android.play.core.integrity.IntegrityTokenRequest');
-
-        var manager = IntegrityManagerFactory.create(context);
-        var request = IntegrityTokenRequest.builder()
-            .setNonce(NONCE)
-            .setCloudProjectNumber(PROJECT_NUM)
-            .build();
-
-        var task = manager.requestIntegrityToken(request);
-
-        var OnSuccessListener = Java.registerClass({
-            name: 'com.example.SuccessListener',
-            implements: [Java.use('com.google.android.gms.tasks.OnSuccessListener')],
-            methods: {
-                onSuccess: function(result) {
-                    var IntegrityTokenResponse = Java.use('com.google.android.play.core.integrity.IntegrityTokenResponse');
-                    var response = Java.cast(result, IntegrityTokenResponse);
-                    send({type: 'token', value: response.token()});
-                }
-            }
-        });
-
-        var OnFailureListener = Java.registerClass({
-            name: 'com.example.FailureListener',
-            implements: [Java.use('com.google.android.gms.tasks.OnFailureListener')],
-            methods: {
-                onFailure: function(exception) {
-                    send({type: 'error', value: exception.toString()});
-                }
-            }
-        });
-
-        task.addOnSuccessListener(OnSuccessListener.$new());
-        task.addOnFailureListener(OnFailureListener.$new());
-    } catch (e) {
-        send({type: 'error', value: e.stack || e.toString()});
-    }
-});
-"""
 
 token_event = threading.Event()
 captured_token = None
@@ -120,23 +70,55 @@ try:
     print(f"[*] Attaching to process...", file=sys.stderr)
     session = device.attach(pid)
 
-    print("[*] Loading script...", file=sys.stderr)
-    js_code = FRIDA_SCRIPT.replace('__NONCE__', nonce_b64).replace('__PROJECT_NUM__', str(CLOUD_PROJECT))
-    script = session.create_script(js_code)
-    script.on('message', on_message)
-    script.load()
+    print("[*] Preparing TypeScript script...", file=sys.stderr)
+    script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'integrity_token.ts')
+    with open(script_path, 'r') as f:
+        script_content = f.read()
 
-    print("[*] Waiting for integrity token (timeout: 30s)...", file=sys.stderr)
-    if not token_event.wait(timeout=30):
-        raise RuntimeError("Timeout: No response from script after 30 seconds")
+    script_content = script_content.replace('NONCE_PLACEHOLDER', f'"{nonce_b64}"')
+    script_content = script_content.replace('PROJECT_NUM_PLACEHOLDER', str(CLOUD_PROJECT))
 
-    if script_error:
-        raise RuntimeError(f"Script error: {script_error}")
+    # Write temp script in same directory as the original (where node_modules lives)
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    temp_script = os.path.join(project_root, '_temp_integrity.ts')
 
-    if captured_token:
-        print(captured_token)
-    else:
-        raise RuntimeError("No token captured")
+    with open(temp_script, 'w') as f:
+        f.write(script_content)
+
+    try:
+        print(f"[*] Compiling script (project_root: {project_root})...", file=sys.stderr)
+        compiler = frida.Compiler()
+
+        compile_error = None
+        compile_done = threading.Event()
+
+        def on_compiler_diagnostics(diagnostics):
+            print(f"[!] Compiler diagnostics: {diagnostics}", file=sys.stderr)
+
+        compiler.on('diagnostics', on_compiler_diagnostics)
+
+        bundle = compiler.build(temp_script, project_root=project_root)
+
+        print("[*] Loading compiled script...", file=sys.stderr)
+        script = session.create_script(bundle)
+        script.on('message', on_message)
+        script.load()
+
+        print("[*] Waiting for integrity token (timeout: 30s)...", file=sys.stderr)
+        if not token_event.wait(timeout=30):
+            raise RuntimeError("Timeout: No response from script after 30 seconds")
+
+        if script_error:
+            raise RuntimeError(f"Script error: {script_error}")
+
+        if captured_token:
+            print(captured_token)
+        else:
+            raise RuntimeError("No token captured")
+
+    finally:
+        if os.path.exists(temp_script):
+            os.unlink(temp_script)
 
 except Exception as e:
     print(f"[!] Error: {e}", file=sys.stderr)
