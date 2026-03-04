@@ -36,13 +36,14 @@ def health():
     dependencies=[Depends(require_api_key)],
 )
 def get_integrity_token(req: IntegrityTokenRequest):
+    nonce_clean = req.nonce.replace(" ", "")
     try:
-        bytes.fromhex(req.nonce)
+        bytes.fromhex(nonce_clean)
     except ValueError:
         raise HTTPException(status_code=400, detail="nonce must be a valid hex string")
 
     result = subprocess.run(
-        [sys.executable, str(PLAY_INTEGRITY_SCRIPT), req.nonce],
+        [sys.executable, str(PLAY_INTEGRITY_SCRIPT), nonce_clean],
         capture_output=True,
         text=True,
         timeout=90,

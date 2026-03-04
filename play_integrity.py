@@ -11,8 +11,8 @@ if len(sys.argv) != 2:
     print("Usage: python play_integrity.py <nonce_hex>")
     sys.exit(1)
 
-nonce_hex = sys.argv[1]
-nonce_b64 = base64.b64encode(bytes.fromhex(nonce_hex)).decode()
+nonce_hex = sys.argv[1].replace(" ", "")
+nonce_b64 = base64.urlsafe_b64encode(bytes.fromhex(nonce_hex)).decode().rstrip("=")
 
 PACKAGE = "net.sinovo.mylife.app"
 PROCESS_NAME = "mylife App"
